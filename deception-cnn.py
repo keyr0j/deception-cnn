@@ -1,46 +1,75 @@
-# keras imports for the dataset and building our neural network
-from keras.datasets import mnist
-from keras.models import Sequential
-from keras.layers import Dense, Dropout, Conv2D, MaxPool2D, Flatten
-from keras.utils import np_utils
+import tensorflow as tf
+import numpy as np
+from itertools import cycle
 
-# to calculate accuracy
-from sklearn.metrics import accuracy_score
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn import svm, datasets
+from sklearn.metrics import roc_curve, auc
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import label_binarize
+from sklearn.multiclass import OneVsRestClassifier
+from scipy import interp
+from sklearn.metrics import roc_auc_score
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+import os
 
-# loading the dataset
-(X_train, y_train), (X_test, y_test) = mnist.load_data()
+ 
+train_datagen = ImageDataGenerator(rescale=1/255)
+validation_datagen = ImageDataGenerator(rescale=1/255)
 
-# building the input vector from the 28x28 pixels
-X_train = X_train.reshape(X_train.shape[0], 28, 28, 1)
-X_test = X_test.reshape(X_test.shape[0], 28, 28, 1)
-X_train = X_train.astype('float32')
-X_test = X_test.astype('float32')
+train_generator = train_datagen.flow_from_directory(
+        '',  # This is the source directory for training images
+        classes = ['Deceptive', 'Not Deceptive'],
+        target_size=(200, 200),  # All images will be resized to 200x200
+        batch_size=25,
+        # Use binary labels
+        class_mode='binary')
 
-# normalizing the data to help with the training
-X_train /= 255
-X_test /= 255
+# Flow validation images in batches of 19 using valid_datagen generator
+validation_generator = validation_datagen.flow_from_directory(
+        '',  # This is the source directory for training images
+        classes = ['Deceptive', 'Not Deceptive'],
+        target_size=(200, 200),  # All images will be resized to 200x200
+        batch_size=50,
+        # Use binary labels
+        class_mode='binary',
+        shuffle=True)
 
-# one-hot encoding using keras' numpy-related utilities
-n_classes = 10
-print("Shape before one-hot encoding: ", y_train.shape)
-Y_train = np_utils.to_categorical(y_train, n_classes)
-Y_test = np_utils.to_categorical(y_test, n_classes)
-print("Shape after one-hot encoding: ", Y_train.shape)
+model = tf.keras.models.Sequential([tf.keras.layers.Flatten(input_shape = (200,200,3)), 
+                                    tf.keras.layers.Dense(128, activation=tf.nn.relu), 
+                                    tf.keras.layers.Dense(1, activation=tf.nn.sigmoid)])
 
-# building a linear stack of layers with the sequential model
-model = Sequential()
-# convolutional layer
-model.add(Conv2D(25, kernel_size=(3,3), strides=(1,1), padding='valid', activation='relu', input_shape=(28,28,1)))
-model.add(MaxPool2D(pool_size=(1,1)))
-# flatten output of conv
-model.add(Flatten())
-# hidden layer
-model.add(Dense(100, activation='relu'))
-# output layer
-model.add(Dense(10, activation='softmax'))
+model.summary()
 
-# compiling the sequential model
-model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer='adam')
+model.compile(optimizer = tf.optimizers.Adam(),
+              loss = 'binary_crossentropy',
+              metrics=['accuracy'])
 
-# training the model for 10 epochs
-model.fit(X_train, Y_train, batch_size=128, epochs=10, validation_data=(X_test, Y_test))
+history = model.fit(train_generator,
+      steps_per_epoch=8,  
+      epochs=16,
+      verbose=1,
+      validation_data = validation_generator,
+      validation_steps=3)
+
+model.evaluate(validation_generator)
+
+validation_generator.reset()
+preds = model.predict(validation_generator,
+                      verbose=1)
+
+fpr, tpr, _ = roc_curve(validation_generator.classes, preds)
+roc_auc = auc(fpr, tpr)
+plt.figure()
+lw = 2
+plt.plot(fpr, tpr, color='darkorange',
+         lw=lw, label='ROC curve (area = %0.2f)' % roc_auc)
+plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Results')
+plt.legend(loc="lower right")
+plt.show()
